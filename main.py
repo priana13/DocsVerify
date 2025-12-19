@@ -6,7 +6,7 @@ from PIL import Image
 import pdf2image
 import io
 import re
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, process
 from typing import Optional
 import uvicorn
 
@@ -64,13 +64,22 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         raise HTTPException(status_code=400, detail=f"Error processing PDF: {str(e)}")
 
 def clean_name(name: str) -> str:
-    """Bersihkan nama dari karakter tidak perlu"""
+    """Bersihkan nama dari karakter tidak perlu dan kata-kata umum."""
     # Hapus karakter khusus, hanya pertahankan huruf dan spasi
     name = re.sub(r'[^a-zA-Z\s]', '', name)
-    # Hapus spasi berlebih
-    name = ' '.join(name.split())
     # Uppercase untuk normalisasi
-    return name.upper().strip()
+    name = name.upper()
+
+    # Daftar stopwords yang umum di dokumen, diurutkan dari panjang ke pendek
+    stopwords = ["NAMA LENGKAP", "BORN", "NAMA", "NAME"]
+
+    # Hapus stopwords (sebagai kata utuh)
+    for word in stopwords:
+        name = re.sub(r'\b' + word + r'\b', '', name)
+
+    # Hapus spasi berlebih yang mungkin timbul
+    name = ' '.join(name.split())
+    return name.strip()
 
 def extract_names_from_text(text: str) -> list:
     """Extract kemungkinan nama dari text akta"""
@@ -92,32 +101,45 @@ def extract_names_from_text(text: str) -> list:
     
     return names
 
-def validate_name(input_name: str, extracted_names: list, threshold: int = 80) -> dict:
-    """Validasi nama user dengan nama yang diekstrak dari akta"""
+def validate_name(input_name: str, extracted_text: str, threshold: int = 90) -> dict:
+    """Validasi nama user dengan mencocokkannya ke frasa dalam teks dokumen."""
     input_name_clean = clean_name(input_name)
+
+    if not input_name_clean:
+        return {"is_valid": False, "matched_name": None, "similarity_score": 0, "threshold": threshold}
+
+    extracted_text_clean = " ".join(extracted_text.split()).upper()
+    words = extracted_text_clean.split()
+    input_len = len(input_name_clean.split())
+
+    # Buat daftar frasa kandidat dari teks dokumen
+    # dengan panjang yang mirip dengan nama input
+    min_len = max(1, input_len - 2)  # Toleransi 2 kata lebih pendek
+    max_len = input_len + 2  # Toleransi 2 kata lebih panjang
     
-    best_match = {
-        "is_valid": False,
-        "matched_name": None,
-        "similarity_score": 0,
-        "threshold": threshold
-    }
+    choices = set() # Gunakan set untuk hindari duplikat
+    for n in range(min_len, max_len + 1):
+        if len(words) >= n:
+            for i in range(len(words) - n + 1):
+                choices.add(" ".join(words[i:i+n]))
+
+    if not choices:
+        return {"is_valid": False, "matched_name": None, "similarity_score": 0, "threshold": threshold}
+
+    # Cari kandidat terbaik menggunakan fuzz.ratio yang lebih ketat
+    best_match = process.extractOne(input_name_clean, list(choices), scorer=fuzz.ratio)
+
+    if best_match:
+        matched_name, score, _ = best_match
+        is_valid = score >= threshold
+        return {
+            "is_valid": is_valid,
+            "matched_name": matched_name if is_valid else None,
+            "similarity_score": round(score),
+            "threshold": threshold
+        }
     
-    for extracted_name in extracted_names:
-        # Hitung similarity menggunakan beberapa metode
-        ratio = fuzz.ratio(input_name_clean, extracted_name)
-        partial_ratio = fuzz.partial_ratio(input_name_clean, extracted_name)
-        token_sort_ratio = fuzz.token_sort_ratio(input_name_clean, extracted_name)
-        
-        # Ambil score tertinggi
-        max_score = max(ratio, partial_ratio, token_sort_ratio)
-        
-        if max_score > best_match["similarity_score"]:
-            best_match["similarity_score"] = max_score
-            best_match["matched_name"] = extracted_name
-            best_match["is_valid"] = max_score >= threshold
-    
-    return best_match
+    return {"is_valid": False, "matched_name": None, "similarity_score": 0, "threshold": threshold}
 
 @app.get("/")
 async def root():
@@ -132,7 +154,7 @@ async def root():
 async def validate_name_endpoint(
     file: UploadFile = File(..., description="Akta file (image/PDF)"),
     name: str = Form(..., description="Nama yang akan divalidasi"),
-    threshold: Optional[int] = Form(80, description="Threshold similarity (0-100)")
+    threshold: Optional[int] = Form(90, description="Threshold similarity (0-100)")
 ):
     """
     Endpoint untuk validasi nama dari akta
@@ -172,25 +194,11 @@ async def validate_name_endpoint(
                 detail="Format file tidak didukung. Gunakan JPG, PNG, atau PDF"
             )
         
-        # Extract nama dari text
+        # Validasi nama langsung ke text yang diekstrak
+        result = validate_name(name, extracted_text, threshold)
+        
+        # (Opsional) Tetap extract nama untuk ditampilkan di response
         extracted_names = extract_names_from_text(extracted_text)
-        
-        if not extracted_names:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "is_valid": False,
-                    "matched_name": None,
-                    "similarity_score": 0,
-                    "threshold": threshold,
-                    "message": "Tidak ada nama yang dapat diekstrak dari akta",
-                    "extracted_text": extracted_text[:500],  # Preview text
-                    "all_names_found": []
-                }
-            )
-        
-        # Validasi nama
-        result = validate_name(name, extracted_names, threshold)
         
         return JSONResponse(
             status_code=200,
