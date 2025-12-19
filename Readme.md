@@ -1,17 +1,21 @@
 1. Install python3-venv (jika belum ada)
-bashsudo apt-get update
+sudo apt-get update
 sudo apt-get install python3-full python3-venv
 2. Buat Virtual Environment
-bash# Di folder project Anda
+# Di folder project Anda
 python3 -m venv venv
 3. Aktivasi Virtual Environment
-bashsource venv/bin/activate
+source venv/bin/activate
 Setelah aktivasi, prompt akan berubah menjadi (venv) user@host:~$
 4. Install Dependencies
-bashpip install -r requirements.txt
+pip install -r requirements.txt
 5. Jalankan API
-bashpython main.py
+python3 main.py
 
+6. Install PDF to Image
+sudo apt install -y poppler-utils
+
+sudo apt-get install -y tesseract-ocr-ind
 
 
 🚀 Untuk Production (Opsional)
