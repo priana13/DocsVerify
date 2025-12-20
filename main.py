@@ -65,20 +65,25 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
 
 def clean_name(name: str) -> str:
     """Bersihkan nama dari karakter tidak perlu dan kata-kata umum."""
-    # Hapus karakter khusus, hanya pertahankan huruf dan spasi
+    # Hapus kutip tunggal dan backtick terlebih dahulu
+    name = re.sub(r"[\'`]", "", name)
+
+    # Hapus karakter khusus lain, hanya pertahankan huruf dan spasi
     name = re.sub(r'[^a-zA-Z\s]', '', name)
+
     # Uppercase untuk normalisasi
     name = name.upper()
 
-    # Daftar stopwords yang umum di dokumen, diurutkan dari panjang ke pendek
+    # Daftar stopwords yang umum di dokumen
     stopwords = ["NAMA LENGKAP", "BORN", "NAMA", "NAME"]
 
     # Hapus stopwords (sebagai kata utuh)
     for word in stopwords:
-        name = re.sub(r'\b' + word + r'\b', '', name)
+        name = re.sub(rf'\b{word}\b', '', name)
 
-    # Hapus spasi berlebih yang mungkin timbul
+    # Hapus spasi berlebih
     name = ' '.join(name.split())
+
     return name.strip()
 
 def extract_names_from_text(text: str) -> list:
