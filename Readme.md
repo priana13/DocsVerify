@@ -12,7 +12,7 @@ pip install -r requirements.txt
 5. Jalankan API
 python3 main.py
 
-6. Install PDF to Image
+6. Install PDiiF to Image
 sudo apt install -y poppler-utils
 
 sudo apt-get install -y tesseract-ocr-ind
@@ -21,7 +21,7 @@ sudo apt-get install -y tesseract-ocr-ind
 🚀 Untuk Production (Opsional)
 Jika ingin menjalankan sebagai service yang auto-start:
 Buat file systemd service:
-bashsudo nano /etc/systemd/system/akta-api.service
+sudo nano /etc/systemd/system/akta-api.service
 Isi file:
 ini[Unit]
 Description=Akta Validation API
@@ -37,7 +37,9 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 Aktifkan service:
-bashsudo systemctl enable akta-api
+
+bash:
+sudo systemctl enable akta-api
 sudo systemctl start akta-api
 sudo systemctl status akta-api
 
