@@ -1,0 +1,27 @@
+services:
+  docsverify:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docsverify-app
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=info
+    volumes:
+      # Mount directory untuk input file (opsional)
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    networks:
+      - docsverify-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  docsverify-network:
+    driver: bridge

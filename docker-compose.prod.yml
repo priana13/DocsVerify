@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  docsverify:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docsverify-app
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - API_TITLE=${API_TITLE:-Akta Name Validation API}
+      - API_VERSION=${API_VERSION:-1.0.0}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - docsverify-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    # Uncomment untuk production dengan reverse proxy (nginx)
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.docsverify.rule=Host(`api.example.com`)"
+    #   - "traefik.http.services.docsverify.loadbalancer.server.port=8000"
+
+networks:
+  docsverify-network:
+    driver: bridge
