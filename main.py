@@ -65,8 +65,8 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
 
 def clean_name(name: str) -> str:
     """Bersihkan nama dari karakter tidak perlu dan kata-kata umum."""
-    # Hapus kutip tunggal dan backtick terlebih dahulu
-    name = re.sub(r"[\'`]", "", name)
+    # Hapus semua jenis kutip: ' ` ' ' " « » ‹ ›
+    name = re.sub(r"['`\u2018\u2019\u201C\u201D\xAB\xBB\u2039\u203A]", "", name)
 
     # Hapus karakter khusus lain, hanya pertahankan huruf dan spasi
     name = re.sub(r'[^a-zA-Z\s]', '', name)
