@@ -6,6 +6,7 @@ from PIL import Image
 import pdf2image
 import io
 import re
+from datetime import datetime
 from rapidfuzz import fuzz, process
 from typing import Optional
 import uvicorn
@@ -62,6 +63,179 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         return "\n".join(all_text)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing PDF: {str(e)}")
+
+def extract_text_from_upload(file_bytes: bytes, content_type: Optional[str]) -> str:
+    """Extract text dari file upload (PDF/image)."""
+    if content_type == "application/pdf":
+        return extract_text_from_pdf(file_bytes)
+    if content_type in ["image/jpeg", "image/jpg", "image/png"]:
+        image = Image.open(io.BytesIO(file_bytes))
+        return extract_text_from_image(image)
+
+    raise HTTPException(
+        status_code=400,
+        detail="Format file tidak didukung. Gunakan JPG, PNG, atau PDF"
+    )
+
+def find_first_match(patterns: list, text: str, flags: int = re.IGNORECASE | re.MULTILINE):
+    """Cari match pertama dari daftar regex patterns."""
+    for pattern in patterns:
+        match = re.search(pattern, text, flags)
+        if match:
+            for group in match.groups():
+                if group and group.strip():
+                    return group.strip()
+    return None
+
+def clean_extracted_name(value: Optional[str]) -> Optional[str]:
+    """Normalisasi nilai nama hasil ekstraksi."""
+    if not value:
+        return None
+
+    value = re.split(r'(?i)\b(?:bank|nominal|jumlah|total|amount|tanggal|jam|waktu|rekening|rek)\b', value)[0]
+    cleaned = re.sub(r'[^A-Za-z\s\.-]', '', value)
+    cleaned = ' '.join(cleaned.split())
+
+    if len(cleaned) < 3:
+        return None
+    return cleaned
+
+def normalize_nominal(value: Optional[str]) -> Optional[str]:
+    """Normalisasi nominal jadi angka murni tanpa simbol/pemisah."""
+    if not value:
+        return None
+
+    cleaned = re.sub(r'(?i)rp', '', value)
+    cleaned = re.sub(r'[^\d]', '', cleaned)
+    return cleaned if cleaned else None
+
+def normalize_tanggal(value: Optional[str]) -> Optional[str]:
+    """Normalisasi tanggal ke format YYYY-MM-DD."""
+    if not value:
+        return None
+
+    cleaned = value.strip().lower()
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+
+    month_map = {
+        "januari": "january",
+        "jan": "january",
+        "februari": "february",
+        "feb": "february",
+        "maret": "march",
+        "mar": "march",
+        "april": "april",
+        "apr": "april",
+        "mei": "may",
+        "may": "may",
+        "juni": "june",
+        "jun": "june",
+        "juli": "july",
+        "jul": "july",
+        "agustus": "august",
+        "agu": "august",
+        "agt": "august",
+        "aug": "august",
+        "september": "september",
+        "sep": "september",
+        "oktober": "october",
+        "okt": "october",
+        "oct": "october",
+        "november": "november",
+        "nov": "november",
+        "desember": "december",
+        "des": "december",
+        "dec": "december"
+    }
+
+    for local_month, en_month in month_map.items():
+        cleaned = re.sub(rf'\b{local_month}\b', en_month, cleaned)
+
+    cleaned = cleaned.replace('.', '/').replace('-', '/')
+
+    if re.match(r'^\d{1,2}/\d{1,2}/\d{2,4}$', cleaned):
+        day, month, year = cleaned.split('/')
+        if len(year) == 2:
+            year = f"20{year}"
+        try:
+            dt = datetime(int(year), int(month), int(day))
+            return dt.strftime('%Y-%m-%d')
+        except ValueError:
+            return None
+
+    for fmt in ["%d %B %Y", "%d %b %Y", "%d %B %y", "%d %b %y"]:
+        try:
+            dt = datetime.strptime(cleaned, fmt)
+            if dt.year < 100:
+                dt = dt.replace(year=2000 + dt.year)
+            return dt.strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+
+    return None
+
+def normalize_bank(value: Optional[str]) -> Optional[str]:
+    """Normalisasi nama bank ke uppercase singkat."""
+    if not value:
+        return None
+
+    cleaned = re.sub(r'[^A-Za-z\s\.-]', ' ', value)
+    cleaned = ' '.join(cleaned.split()).upper()
+    return cleaned if cleaned else None
+
+def parse_transfer_proof_fields(text: str) -> dict:
+    """Extract field penting dari OCR bukti transfer."""
+    text_single_line = re.sub(r'\s+', ' ', text)
+
+    tanggal_patterns = [
+        r'(?:tanggal|tgl|date)\s*[:\-]?\s*((?:\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})|(?:\d{1,2}\s+[A-Za-z]+\s+\d{2,4}))',
+        r'\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b',
+        r'\b(\d{1,2}\s+[A-Za-z]+\s+\d{2,4})\b'
+    ]
+
+    jam_patterns = [
+        r'(?:jam|waktu|time)\s*[:\-]?\s*(\d{1,2}[:\.]\d{2}(?::\d{2})?)',
+        r'\b(\d{1,2}:\d{2}(?::\d{2})?)\b',
+        r'\b(\d{1,2}\.\d{2}(?::\d{2})?)\b'
+    ]
+
+    nominal_patterns = [
+        r'(?:jumlah|nominal|total|amount)\s*[:\-]?\s*(Rp\s?[\d\.,]+)',
+        r'(Rp\s?[\d\.,]+)',
+        r'\b([\d]{1,3}(?:\.[\d]{3})+(?:,[\d]{1,2})?)\b'
+    ]
+
+    nama_rekening_sumber_patterns_multiline = [
+        r'(?im)^\s*(?:nama\s+rekening\s+sumber|rekening\s+sumber|nama\s+rek(?:ening)?\s+sumber)\s*[:\-]?\s*([^\n\r]+)',
+        r'(?im)^\s*(?:from\s+account\s+name|source\s+account\s+name)\s*[:\-]?\s*([^\n\r]+)'
+    ]
+
+    nama_rekening_sumber_patterns_single_line = [
+        r'(?:nama\s+rekening\s+sumber|rekening\s+sumber|nama\s+rek(?:ening)?\s+sumber)\s*[:\-]?\s*([A-Za-z][A-Za-z\s\.-]{2,})',
+        r'(?:from\s+account\s+name|source\s+account\s+name)\s*[:\-]?\s*([A-Za-z][A-Za-z\s\.-]{2,})'
+    ]
+
+    bank_patterns = [
+        r'(?:bank\s+tujuan|bank\s+penerima|bank\s+pengirim|bank)\s*[:\-]?\s*([A-Za-z][A-Za-z\s\.-]{1,})',
+        r'\b(BCA|BRI|BNI|MANDIRI|CIMB\s*NIAGA|PERMATA|DANAMON|OCBC|BTN|BTPN|BSI)\b'
+    ]
+
+    tanggal = normalize_tanggal(find_first_match(tanggal_patterns, text_single_line))
+    jam = find_first_match(jam_patterns, text_single_line)
+    nominal = normalize_nominal(find_first_match(nominal_patterns, text_single_line))
+    nama_candidate = find_first_match(nama_rekening_sumber_patterns_multiline, text)
+    if not nama_candidate:
+        nama_candidate = find_first_match(nama_rekening_sumber_patterns_single_line, text_single_line)
+    nama = clean_extracted_name(nama_candidate)
+    bank = normalize_bank(find_first_match(bank_patterns, text_single_line))
+
+    return {
+        "tanggal": tanggal,
+        "jam": jam,
+        "nominal": nominal,
+        "nama": nama,
+        "bank": bank
+    }
 
 def clean_name(name: str) -> str:
     """Bersihkan nama dari karakter tidak perlu dan kata-kata umum."""
@@ -188,16 +362,7 @@ async def validate_name_endpoint(
         file_bytes = await file.read()
         
         # Deteksi tipe file dan extract text
-        if file.content_type == "application/pdf":
-            extracted_text = extract_text_from_pdf(file_bytes)
-        elif file.content_type in ["image/jpeg", "image/jpg", "image/png"]:
-            image = Image.open(io.BytesIO(file_bytes))
-            extracted_text = extract_text_from_image(image)
-        else:
-            raise HTTPException(
-                status_code=400, 
-                detail="Format file tidak didukung. Gunakan JPG, PNG, atau PDF"
-            )
+        extracted_text = extract_text_from_upload(file_bytes, file.content_type)
         
         # Validasi nama langsung ke text yang diekstrak
         result = validate_name(name, extracted_text, threshold)
@@ -237,16 +402,7 @@ async def extract_text_endpoint(
     try:
         file_bytes = await file.read()
         
-        if file.content_type == "application/pdf":
-            extracted_text = extract_text_from_pdf(file_bytes)
-        elif file.content_type in ["image/jpeg", "image/jpg", "image/png"]:
-            image = Image.open(io.BytesIO(file_bytes))
-            extracted_text = extract_text_from_image(image)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Format file tidak didukung"
-            )
+        extracted_text = extract_text_from_upload(file_bytes, file.content_type)
         
         extracted_names = extract_names_from_text(extracted_text)
         
@@ -260,6 +416,36 @@ async def extract_text_endpoint(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/check-transfer-proof")
+async def check_transfer_proof_endpoint(
+    file: UploadFile = File(..., description="File bukti transfer (JPG/PNG/PDF)")
+):
+    """
+    Endpoint untuk cek bukti transfer.
+
+    Returns:
+    - extracted_full_text: Text OCR lengkap
+    - tanggal: Tanggal transaksi (jika ditemukan)
+    - jam: Jam transaksi (jika ditemukan)
+    - nominal: Nominal transfer (jika ditemukan)
+    - nama: Nama pengirim/penerima (jika ditemukan)
+    - bank: Nama bank (jika ditemukan)
+    """
+    try:
+        file_bytes = await file.read()
+        extracted_text = extract_text_from_upload(file_bytes, file.content_type)
+        parsed_fields = parse_transfer_proof_fields(extracted_text)
+
+        return {
+            "extracted_full_text": extracted_text,
+            **parsed_fields
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

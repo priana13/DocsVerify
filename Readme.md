@@ -63,3 +63,19 @@ console.log(result);
 //   "similarity_score": 100,
 //   "all_names_found": ["BUDI SANTOSO", "JOHN DOE"]
 // }
+
+5. Endpoint cek bukti transfer
+Gunakan endpoint `POST /check-transfer-proof` dengan form-data berisi `file` (JPG/PNG/PDF).
+
+Contoh response:
+json
+{
+  "extracted_full_text": "...hasil OCR lengkap...",
+  "tanggal": "2026-03-20",
+  "jam": "14:35:10",
+  "nominal": "150000",
+  "nama": "Budi Santoso",
+  "bank": "BCA"
+}
+
+Catatan: `nama` diprioritaskan dari field **Nama Rekening Sumber** (atau variasi label sejenis).
