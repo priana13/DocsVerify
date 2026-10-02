@@ -21,14 +21,14 @@ sudo apt-get install -y tesseract-ocr-ind
 🚀 Untuk Production (Opsional)
 Jika ingin menjalankan sebagai service yang auto-start:
 Buat file systemd service:
-bashsudo nano /etc/systemd/system/akta-api.service
+sudo nano /etc/systemd/system/docs-verify.service
 Isi file:
 ini[Unit]
-Description=Akta Validation API
+Description=Document Validation API
 After=network.target
 
 [Service]
-User=your_username
+User=priana
 WorkingDirectory=/path/to/your/project
 Environment="PATH=/path/to/your/project/venv/bin"
 ExecStart=/path/to/your/project/venv/bin/python main.py
@@ -37,9 +37,9 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 Aktifkan service:
-bashsudo systemctl enable akta-api
-sudo systemctl start akta-api
-sudo systemctl status akta-api
+sudo systemctl enable docs-verify
+sudo systemctl start docs-verify
+sudo systemctl status docs-verify
 
 
 4. Test API
@@ -63,3 +63,19 @@ console.log(result);
 //   "similarity_score": 100,
 //   "all_names_found": ["BUDI SANTOSO", "JOHN DOE"]
 // }
+
+5. Endpoint cek bukti transfer
+Gunakan endpoint `POST /check-transfer-proof` dengan form-data berisi `file` (JPG/PNG/PDF).
+
+Contoh response:
+json
+{
+  "extracted_full_text": "...hasil OCR lengkap...",
+  "tanggal": "2026-03-20",
+  "jam": "14:35:10",
+  "nominal": "150000",
+  "nama": "Budi Santoso",
+  "bank": "BCA"
+}
+
+Catatan: `nama` diprioritaskan dari field **Nama Rekening Sumber** (atau variasi label sejenis).
